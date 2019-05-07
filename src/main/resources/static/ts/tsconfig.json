@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "module": "amd",
+    "sourceMap": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "target": "es2018"
+  },
+  "compileOnSave": true,
+  "baseUrl": ""
+}
