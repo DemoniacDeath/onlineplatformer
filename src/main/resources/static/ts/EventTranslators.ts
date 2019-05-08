@@ -15,33 +15,35 @@ export interface EventTranslator<F extends BaseEvent, T extends BaseEvent> {
 
 export class KeyboardInputEventTranslator implements EventTranslator<KeyboardInputEvent, GameEvent> {
     translate(from: BaseEvent): BaseEvent | null  {
-        if (from !instanceof KeyboardInputEvent) return null;
+        if (!(from instanceof KeyboardInputEvent)) return null;
         if (from instanceof KeyDownInputEvent && from.keyCode == "KeyG")
             return new PlayerEvent(Date.now(), PlayerEventType.CheatGravityToggle);
-        if (from instanceof KeyPressedInputEvent && from.keyCode == "KeyZ")
-            return new CameraEvent(Date.now(), CameraEventType.CameraZoom);
-        if (from instanceof KeyPressedInputEvent && (
-            from.keyCode == 'ArrowLeft' ||
-            from.keyCode == 'KeyA'
-        ))
-            return new PlayerEvent(Date.now(), PlayerEventType.MoveLeft);
-        if (from instanceof KeyPressedInputEvent && (
-            from.keyCode == 'ArrowRight' ||
-            from.keyCode == 'KeyD'
-        ))
-            return new PlayerEvent(Date.now(), PlayerEventType.MoveRight);
-        if (from instanceof KeyPressedInputEvent && (
-            from.keyCode == 'ArrowUp' ||
-            from.keyCode == 'KeyW' ||
-            from.keyCode == 'Space'
-        ))
-            return new PlayerEvent(Date.now(), PlayerEventType.Jump);
-        if (from instanceof KeyPressedInputEvent && (
-            from.keyCode == 'ArrowDown' ||
-            from.keyCode == 'KeyS' ||
-            from.keyCode == 'ControlLeft'
-        ))
-            return new PlayerEvent(Date.now(), PlayerEventType.Crouch);
+        if (from instanceof KeyPressedInputEvent) {
+            if (from.keyCode == "KeyZ")
+                return new CameraEvent(Date.now(), CameraEventType.CameraZoom);
+            if (
+                from.keyCode == 'ArrowLeft' ||
+                from.keyCode == 'KeyA'
+            )
+                return new PlayerEvent(Date.now(), PlayerEventType.MoveLeft);
+            if (
+                from.keyCode == 'ArrowRight' ||
+                from.keyCode == 'KeyD'
+            )
+                return new PlayerEvent(Date.now(), PlayerEventType.MoveRight);
+            if (
+                from.keyCode == 'ArrowUp' ||
+                from.keyCode == 'KeyW' ||
+                from.keyCode == 'Space'
+            )
+                return new PlayerEvent(Date.now(), PlayerEventType.Jump);
+            if (
+                from.keyCode == 'ArrowDown' ||
+                from.keyCode == 'KeyS' ||
+                from.keyCode == 'ControlLeft'
+            )
+                return new PlayerEvent(Date.now(), PlayerEventType.Crouch);
+        }
         return null;
     }
 }

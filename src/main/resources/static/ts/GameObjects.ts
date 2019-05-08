@@ -127,8 +127,8 @@ export class Player extends GameObject {
 
     handleEvents(events: EventBuffer<GameEvent>) {
         const ticks = Date.now();
-        let dt = this._lastTick - ticks;
-        dt = Math.min(dt, 0.033);
+        let dt = this._lastTick - ticks / 1000;
+        dt = Math.min(dt, 0.02);
         this._lastTick = ticks;
         if (this.physics && events.contains(PlayerEvent, (e: PlayerEvent) => {
             return e.type === PlayerEventType.CheatGravityToggle;
@@ -139,7 +139,13 @@ export class Player extends GameObject {
                 this.physics.velocity = Vector.zero();
             }
         }
-        if (!this.dead && this.physics) {
+        if (!this.dead && this.physics && events.contains(PlayerEvent, (e: PlayerEvent) => {
+            return e.type === PlayerEventType.MoveLeft
+                || e.type === PlayerEventType.MoveRight
+                || e.type === PlayerEventType.Jump
+                || e.type === PlayerEventType.Crouch;
+
+        })) {
             let sitDown = false;
             let moveLeft = false;
             let moveRight = false;
