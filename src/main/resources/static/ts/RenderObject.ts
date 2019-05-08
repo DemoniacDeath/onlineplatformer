@@ -1,10 +1,8 @@
-import Vector = require('./Vector');
-import Rect = require('./Rect');
-import Renderer = require('./Renderer');
-import Size = require('./Size');
+import {Renderer} from './Renderer';
 import {Texture} from "./Texture";
+import {Rect, Size, Vector} from "./Core";
 
-export = class RenderObject {
+export class RenderObject {
     private readonly texture: Texture;
     private readonly cachedScaledTextures: Map<string, Texture>;
 

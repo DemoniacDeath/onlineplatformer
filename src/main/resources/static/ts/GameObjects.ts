@@ -1,15 +1,52 @@
-import GameObject = require('./GameObject');
-import PhysicsState = require('../PhysicsState');
-import Vector = require('../Vector');
-import Consumable = require('./Consumable');
-import Rect = require('../Rect');
-import Size = require('../Size');
-import Animation = require('../Animation');
-import UIBar = require('./UI/UIBar');
-import UIText = require('./UI/UIText');
-import Collision = require('../Collision');
+import {GameObject} from "./GameObject";
+import {Rect, Size, Vector} from "./Core";
+import {CameraEvent, CameraEventType, EventBuffer, GameEvent, PlayerEvent, PlayerEventType} from "./Events";
+import {Collision, PhysicsState} from "./Physics";
+import {Animation} from "./Animation";
+import {UIBar, UIText} from "./UI";
 
-export = class Player extends GameObject {
+export class Camera extends GameObject {
+    originalSize: Size;
+
+    constructor(parent: GameObject | null, frame: Rect) {
+        super(parent, frame);
+
+        this.originalSize = {width: frame.width, height: frame.height};
+    };
+
+    setSize(size: Size) {
+        this.originalSize = size;
+        this.frame.setSize(size);
+    };
+
+    handleEvents(events: EventBuffer<GameEvent>) {
+        if (events.contains(CameraEvent, (e: CameraEvent) => {return e.type == CameraEventType.CameraZoom})) {
+            this.frame.width = this.originalSize.width * 2;
+            this.frame.height = this.originalSize.height * 2;
+        } else {
+            this.frame.width = this.originalSize.width;
+            this.frame.height = this.originalSize.height;
+        }
+        super.handleEvents(events);
+        return this;
+    };
+}
+
+export class Consumable extends GameObject {
+    speedBoost: number;
+    jumpSpeedBoost: number;
+
+    constructor(parent: GameObject | null, frame: Rect, speedBoost: number, jumpSpeedBoost: number) {
+        super(parent, frame);
+
+        this.physics = new PhysicsState(this);
+
+        this.speedBoost = speedBoost;
+        this.jumpSpeedBoost = jumpSpeedBoost;
+    };
+}
+
+export class Player extends GameObject {
     speed: number;
     jumpSpeed: number;
     power: number;
@@ -35,6 +72,7 @@ export = class Player extends GameObject {
     healthBar: UIBar | null;
     powerBar: UIBar | null;
     private _crouched: boolean;
+    private _lastTick: number = 0;
 
     constructor(parent: GameObject | null, frame: Rect) {
         super(parent, frame);
@@ -87,34 +125,41 @@ export = class Player extends GameObject {
         }
     };
 
-    keyDown(key: string) {
-        if (this.physics && key === 'KeyG') {
+    handleEvents(events: EventBuffer<GameEvent>) {
+        const ticks = Date.now();
+        let dt = this._lastTick - ticks;
+        dt = Math.min(dt, 0.033);
+        this._lastTick = ticks;
+        if (this.physics && events.contains(PlayerEvent, (e: PlayerEvent) => {
+            return e.type === PlayerEventType.CheatGravityToggle;
+        })) {
             this.physics.gravity = !this.physics.gravity;
             if (!this.physics.gravity) {
                 this.jumped = true;
                 this.physics.velocity = Vector.zero();
             }
         }
-        super.keyDown(key);
-        return this;
-    };
-
-    handleKeyboardState(keys: Map<string, boolean>, dt: number) {
         if (!this.dead && this.physics) {
             let sitDown = false;
             let moveLeft = false;
             let moveRight = false;
             const moveVector = Vector.zero();
             const speed = this.speed * dt;
-            if (keys.get('ArrowLeft') || keys.get('KeyA')) {
+            if (events.contains(PlayerEvent, (e: PlayerEvent) => {
+                return e.type === PlayerEventType.MoveLeft
+            })) {
                 moveVector.x -= speed;
                 moveLeft = true;
             }
-            if (keys.get('ArrowRight') || keys.get('KeyD')) {
+            if (events.contains(PlayerEvent, (e: PlayerEvent) => {
+                return e.type === PlayerEventType.MoveRight
+            })) {
                 moveVector.x += speed;
                 moveRight = true;
             }
-            if (keys.get('ArrowUp') || keys.get('KeyW') || keys.get('Space')) {
+            if (events.contains(PlayerEvent, (e: PlayerEvent) => {
+                return e.type === PlayerEventType.Jump
+            })) {
                 if (!this.physics.gravity) {
                     moveVector.y -= speed;
                 } else {
@@ -124,7 +169,9 @@ export = class Player extends GameObject {
                     }
                 }
             }
-            if (keys.get('ArrowDown') || keys.get('KeyS') || keys.get('ControlLeft')) {
+            if (events.contains(PlayerEvent, (e: PlayerEvent) => {
+                return e.type === PlayerEventType.Crouch
+            })) {
                 if (!this.physics.gravity)
                     moveVector.y += speed;
                 else
@@ -159,7 +206,7 @@ export = class Player extends GameObject {
             this.frame.x += Math.round(moveVector.x);
             this.frame.y += Math.round(moveVector.y);
         }
-        super.handleKeyboardState(keys, dt);
+        super.handleEvents(events);
         return this;
     };
 
@@ -209,5 +256,88 @@ export = class Player extends GameObject {
         this.won = true;
         if (this.winText)
             this.winText.visible = true;
+    };
+}
+
+export class Solid extends GameObject {
+    private readonly damageVelocityThreshold: number;
+    private readonly damageVelocityMultiplier: number;
+
+    constructor(parent: GameObject | null,
+                frame: Rect,
+                damageVelocityThreshold: number,
+                damageVelocityMultiplier: number
+    ) {
+        super(parent, frame);
+
+        this.physics = new PhysicsState(this);
+        this.damageVelocityThreshold = damageVelocityThreshold;
+        this.damageVelocityMultiplier = damageVelocityMultiplier;
+    };
+
+    handleEnterCollision(collision: Collision) {
+        if (collision.collider instanceof Player &&
+            collision.collider.physics &&
+            collision.collider.physics.velocity.y > this.damageVelocityThreshold
+        )
+            collision.collider.dealDamage(
+                Math.round(
+                    Math.pow(
+                        collision.collider.physics.velocity.y - this.damageVelocityThreshold / 2,
+                        2) *
+                    this.damageVelocityMultiplier *
+                    this.damageVelocityMultiplier
+                ))
+            ;
+    };
+
+    handleCollision(collision: Collision) {
+        if (!collision.collider.physics) return;
+        if (Math.abs(collision.collisionVector.x) < Math.abs(collision.collisionVector.y)) {
+            collision.collider.frame.x += collision.collisionVector.x;
+            collision.collider.physics.velocity.x = 0;
+        } else {
+            collision.collider.frame.y += collision.collisionVector.y;
+            collision.collider.physics.velocity.y = 0;
+        }
+    };
+}
+
+export class Room extends GameObject {
+    private readonly width: number;
+    ceiling: Solid;
+    wallLeft: Solid;
+    wallRight: Solid;
+    floor: Solid;
+
+    constructor(parent: GameObject | null,
+                frame: Rect,
+                width: number,
+                damageVelocityThreshold: number,
+                damageVelocityMultiplier: number
+    ) {
+        super(parent, frame);
+
+        this.width = width;
+        this.ceiling = new Solid(this, new Rect(
+            0,
+            -this.frame.height / 2 + this.width / 2,
+            this.frame.width,
+            this.width), damageVelocityThreshold, damageVelocityMultiplier);
+        this.wallLeft = new Solid(this, new Rect(
+            -this.frame.width / 2 + this.width / 2,
+            0,
+            this.width,
+            this.frame.height - this.width * 2), damageVelocityThreshold, damageVelocityMultiplier);
+        this.wallRight = new Solid(this, new Rect(
+            this.frame.width / 2 - this.width / 2,
+            0,
+            this.width,
+            this.frame.height - this.width * 2), damageVelocityThreshold, damageVelocityMultiplier);
+        this.floor = new Solid(this, new Rect(
+            0,
+            this.frame.height / 2 - this.width / 2,
+            this.frame.width,
+            this.width), damageVelocityThreshold, damageVelocityMultiplier);
     };
 }

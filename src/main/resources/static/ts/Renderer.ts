@@ -1,6 +1,6 @@
 import {Texture} from "./Texture";
 
-export = class Renderer {
+export class Renderer {
     private context: CanvasRenderingContext2D;
     size: { width: any; height: any };
 

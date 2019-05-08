@@ -1,9 +1,9 @@
-import Rect = require('./Rect');
-import Renderer = require('./Renderer');
-import RenderObject = require('./RenderObject');
+import {Renderer} from './Renderer';
+import {RenderObject} from './RenderObject';
 import {Texture} from "./Texture";
+import {Rect} from "./Core";
 
-export = class Animation {
+export class Animation {
     static _speedScale = 1000;
     private readonly speed: number;
     private startTick: number;

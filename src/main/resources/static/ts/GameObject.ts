@@ -1,13 +1,11 @@
-import Vector = require('../Vector');
-import Rect = require('../Rect');
-import Animation = require('../Animation');
-import RenderObject = require('../RenderObject');
-import PhysicsState = require('../PhysicsState');
-import Renderer = require('../Renderer');
-import Size = require('../Size');
-import Collision = require('../Collision');
+import {Animation} from './Animation';
+import {RenderObject} from './RenderObject';
+import {Collision, PhysicsState} from './Physics';
+import {Renderer} from './Renderer';
+import {EventBuffer, GameEvent} from "./Events";
+import {Rect, Size, Vector} from "./Core";
 
-export = class GameObject {
+export class GameObject {
     frame: Rect;
     parent: GameObject | null;
     children: GameObject[];
@@ -54,7 +52,6 @@ export = class GameObject {
         let index: number = this.children.indexOf(child);
         if (~index)
             this.children.splice(index, 1);
-        console.log(index);
         return this;
     };
 
@@ -96,19 +93,11 @@ export = class GameObject {
         return this;
     };
 
-    keyDown(key: string) {
+    handleEvents(events: EventBuffer<GameEvent>) {
         let i = 0;
         const len = this.children.length;
         while (i < len)
-            this.children[i++].keyDown(key);
-        return this;
-    };
-
-    handleKeyboardState(keys: Map<string, boolean>, dt: number) {
-        let i = 0;
-        const len = this.children.length;
-        while (i < len)
-            this.children[i++].handleKeyboardState(keys, dt);
+            this.children[i++].handleEvents(events);
         return this;
     };
 

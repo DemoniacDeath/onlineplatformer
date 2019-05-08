@@ -1,9 +1,17 @@
-import Vector = require('./Vector');
-import Rect = require('./Rect');
-import Collision = require('./Collision');
-import GameObject = require('./GameObjects/GameObject');
+import {GameObject} from './GameObject';
+import {Rect, Vector} from "./Core";
 
-export = class PhysicsState {
+export class Collision {
+    collider: GameObject;
+    collisionVector: Vector;
+
+    constructor(collider: GameObject, collisionVector: Vector) {
+        this.collider = collider;
+        this.collisionVector = collisionVector;
+    };
+}
+
+export class PhysicsState {
     static gravityForce: number;
 
     gameObject: GameObject;

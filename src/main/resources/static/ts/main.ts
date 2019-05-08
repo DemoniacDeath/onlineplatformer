@@ -1,4 +1,4 @@
-import Game = require("Game");
+import {Game} from 'Game';
 
 type ImageResourceDefinition = { url: string, width: number, height: number }
 

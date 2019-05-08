@@ -1,27 +1,23 @@
-import Vector = require('Vector');
-import Rect = require('Rect');
-import Renderer = require('Renderer');
-import RenderObject = require('RenderObject');
-import Animation = require('Animation');
-import PhysicsState = require('PhysicsState');
-import GameObject = require('GameObjects/GameObject');
-import Camera = require('GameObjects/Camera');
-import Player = require('GameObjects/Player');
-import Solid = require('GameObjects/Solid');
-import Room = require('GameObjects/Room');
-import Consumable = require('GameObjects/Consumable');
-import UIBar = require('GameObjects/UI/UIBar');
-import UIText = require('GameObjects/UI/UIText');
+import {Renderer} from 'Renderer';
+import {RenderObject} from 'RenderObject';
+import {Animation} from 'Animation';
+import {PhysicsState} from 'Physics';
+import {GameObject} from 'GameObject';
+import {EventBuffer, GameEvent, KeyboardInputEvent, KeyDownInputEvent, KeyPressedInputEvent} from './Events';
 import {rand, requestAnimFrame} from "./util";
+import {EventBufferTranslator, KeyboardInputEventTranslator} from "./EventTranslators";
+import {Rect, Vector} from "./Core";
+import {UIBar, UIText} from "./UI";
+import {Camera, Consumable, Player, Room, Solid} from "./GameObjects";
 
-export = class Game {
+export class Game {
     private gameCanvas: HTMLCanvasElement;
     private uiCanvas: HTMLCanvasElement;
     private resources: Map<string, HTMLImageElement>;
     private lastTick: number;
     private readonly renderer: Renderer;
     private readonly uiRenderer: Renderer;
-    private readonly keyboardState: Map<string, boolean>;
+    private readonly eventsBuffer: Map<string, KeyboardInputEvent>;
     private readonly world: GameObject;
     private readonly camera: Camera;
     private readonly ui: GameObject;
@@ -44,6 +40,8 @@ export = class Game {
     private powerBar: UIBar;
     private readonly socketUrl: string;
     private player: Player;
+    private debugText: UIText;
+    private readonly inputEventBufferTranslator: EventBufferTranslator<KeyboardInputEvent, GameEvent>;
 
     constructor(gameCanvas: HTMLCanvasElement,
                 uiCanvas: HTMLCanvasElement,
@@ -59,11 +57,13 @@ export = class Game {
 
         this.renderer = new Renderer(gameCanvas);
         this.uiRenderer = new Renderer(uiCanvas);
-        this.keyboardState = new Map();
+        this.eventsBuffer = new Map();
         this.lastTick = 0;
         this.world = new GameObject(null, new Rect(0, 0, this.worldWidth * this.gridSquareSize, this.worldHeight * this.gridSquareSize));
         this.camera = new Camera(this.world, new Rect(0, 0, this.renderer.size.width, this.renderer.size.height));
         this.ui = new GameObject(null, new Rect(0, 0, this.renderer.size.width, this.renderer.size.height));
+
+        this.inputEventBufferTranslator = new EventBufferTranslator(new KeyboardInputEventTranslator());
     }
 
     createWorld() {
@@ -145,30 +145,37 @@ export = class Game {
         this.winText.visible = false;
 
         this.healthBarHolder = new GameObject(this.ui, new Rect(
-            -this.renderer.size.width / 2 + 64,
-            -this.renderer.size.height / 2 + 10,
+            -this.uiRenderer.size.width / 2 + 64,
+            -this.uiRenderer.size.height / 2 + 10,
             120, 12));
         this.healthBarHolder.renderObject = RenderObject.fromColor('#000');
 
         this.healthBar = new UIBar(this.ui, new Rect(
-            -this.renderer.size.width / 2 + 64,
-            -this.renderer.size.height / 2 + 10,
+            -this.uiRenderer.size.width / 2 + 64,
+            -this.uiRenderer.size.height / 2 + 10,
             116, 8));
         this.healthBar.renderObject = RenderObject.fromColor('#f00');
         this.healthBar.setValue(100);
 
         this.powerBarHolder = new GameObject(this.ui, new Rect(
-            this.renderer.size.width / 2 - 64,
-            -this.renderer.size.height / 2 + 10,
+            this.uiRenderer.size.width / 2 - 64,
+            -this.uiRenderer.size.height / 2 + 10,
             120, 12));
         this.powerBarHolder.renderObject = RenderObject.fromColor('#000');
 
         this.powerBar = new UIBar(this.ui, new Rect(
-            this.renderer.size.width / 2 - 64,
-            -this.renderer.size.height / 2 + 10,
+            this.uiRenderer.size.width / 2 - 64,
+            -this.uiRenderer.size.height / 2 + 10,
             116, 9));
         this.powerBar.renderObject = RenderObject.fromColor('#0f0');
         this.powerBar.setValue(0);
+
+        this.debugText = new UIText(this.ui, new Rect(
+            0,
+            -this.uiRenderer.size.height / 2 + 10,
+            80, 12
+        ), "DEBUG", "#080", "12px monospace");
+        this.debugText.visible = false;
 
         player.deathText = this.deathText;
         player.winText = this.winText;
@@ -186,7 +193,7 @@ export = class Game {
     gameTimerTick() {
         const ticks = Date.now();
         let dt = (ticks - this.lastTick) / 1000;
-        const dtThrottle = 0.10;
+        const dtThrottle = 0.033;
         dt = (dt > dtThrottle) ? dtThrottle : dt;//prevent some freaky glitches with running out of the walls
         this.lastTick = ticks;
 
@@ -198,7 +205,11 @@ export = class Game {
         this.uiRenderer.clear();
         this.ui.render(this.uiRenderer, this.ui.frame.getCenter(), Vector.zero(), this.camera.originalSize);
 
-        this.world.handleKeyboardState(this.keyboardState, dt)
+        this.world.handleEvents(this.inputEventBufferTranslator.translate(
+            new EventBuffer(
+                Array.from(this.eventsBuffer.values()
+                )
+            )))
             .processPhysics(dt)
             .detectCollisions(dt)
         ;
@@ -209,12 +220,18 @@ export = class Game {
     }
 
     keyDown(e: KeyboardEvent) {
-        this.keyboardState.set(e.code, true);
-        this.world.keyDown(e.code);
+        this.eventsBuffer.set(e.code, new KeyPressedInputEvent(Date.now(), e.code));
+        this.world.handleEvents(
+            this.inputEventBufferTranslator.translate(
+                new EventBuffer([
+                    new KeyDownInputEvent(Date.now(), e.code)
+                ])
+            )
+        );
     }
 
     keyUp(e: KeyboardEvent) {
-        this.keyboardState.delete(e.code);
+        this.eventsBuffer.delete(e.code);
     }
 
     resize() {
@@ -223,25 +240,25 @@ export = class Game {
         this.camera.setSize(this.renderer.size);
         this.ui.frame.setSize(this.renderer.size);
         const healthBarNewCenter = new Vector(
-            -this.renderer.size.width / 2 + 64,
-            -this.renderer.size.height / 2 + 10);
+            -this.uiRenderer.size.width / 2 + 64,
+            -this.uiRenderer.size.height / 2 + 10);
         const powerBarNewCenter = new Vector(
-            this.renderer.size.width / 2 - 64,
-            -this.renderer.size.height / 2 + 10);
+            this.uiRenderer.size.width / 2 - 64,
+            -this.uiRenderer.size.height / 2 + 10);
         this.healthBar.frame.setCenter(healthBarNewCenter);
         this.healthBarHolder.frame.setCenter(healthBarNewCenter);
         this.healthBar.resetOriginalFrame(new Rect(
-            -this.renderer.size.width / 2 + 64,
-            -this.renderer.size.height / 2 + 10,
+            -this.uiRenderer.size.width / 2 + 64,
+            -this.uiRenderer.size.height / 2 + 10,
             116, 8));
         this.healthBar.setValue(this.healthBar.getValue());
         this.powerBar.frame.setCenter(powerBarNewCenter);
         this.powerBarHolder.frame.setCenter(powerBarNewCenter);
         this.powerBar.resetOriginalFrame(new Rect(
-            this.renderer.size.width / 2 - 64,
-            -this.renderer.size.height / 2 + 10,
+            this.uiRenderer.size.width / 2 - 64,
+            -this.uiRenderer.size.height / 2 + 10,
             116, 8));
         this.powerBar.setValue(this.powerBar.getValue());
     }
-};
+}
 
