@@ -1,4 +1,4 @@
-import {Texture} from "./Texture";
+import {Texture} from "./RenderObject";
 
 export class Renderer {
     private context: CanvasRenderingContext2D;

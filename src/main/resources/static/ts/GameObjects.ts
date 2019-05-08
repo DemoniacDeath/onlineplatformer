@@ -4,6 +4,7 @@ import {CameraEvent, CameraEventType, EventBuffer, GameEvent, PlayerEvent, Playe
 import {Collision, PhysicsState} from "./Physics";
 import {Animation} from "./Animation";
 import {UIBar, UIText} from "./UI";
+import {ConsumableData, PlayerData, RoomData, SolidData} from "./Model/GameData";
 
 export class Camera extends GameObject {
     originalSize: Size;
@@ -44,9 +45,18 @@ export class Consumable extends GameObject {
         this.speedBoost = speedBoost;
         this.jumpSpeedBoost = jumpSpeedBoost;
     };
+
+    static deserialize(data: ConsumableData, parent: GameObject | null): Consumable {
+        return new Consumable(
+            parent,
+            Rect.deserialize(data.frame),
+            data.consumablePowerSpeedBoost,
+            data.consumablePowerJumpSpeedBoost);
+    }
 }
 
 export class Player extends GameObject {
+    clientId: string;
     speed: number;
     jumpSpeed: number;
     power: number;
@@ -109,11 +119,11 @@ export class Player extends GameObject {
 
     };
 
-    isCrouched() {
+    get crouched(): boolean {
         return this._crouched;
-    };
+    }
 
-    setCrouched(crouched: boolean) {
+    set crouched(crouched: boolean) {
         if (crouched && !this._crouched) {
             this._crouched = true;
             this.frame.y += Math.round(this.originalSize.height / 4);
@@ -140,7 +150,8 @@ export class Player extends GameObject {
             }
         }
         if (!this.dead && this.physics && events.contains(PlayerEvent, (e: PlayerEvent) => {
-            return e.type === PlayerEventType.MoveLeft
+            return e.type === PlayerEventType.Idle
+                || e.type === PlayerEventType.MoveLeft
                 || e.type === PlayerEventType.MoveRight
                 || e.type === PlayerEventType.Jump
                 || e.type === PlayerEventType.Crouch;
@@ -183,7 +194,7 @@ export class Player extends GameObject {
                 else
                     sitDown = true;
             }
-            this.setCrouched(sitDown);
+            this.crouched = sitDown;
 
             if (moveLeft && !moveRight) {
                 this.moveAnimation = this.moveAnimationLeft;
@@ -196,17 +207,17 @@ export class Player extends GameObject {
                 this.crouchMoveAnimation = this.crouchMoveAnimationRight;
             }
 
-            if (!moveLeft && !moveRight && !this.jumped && !this.isCrouched())
+            if (!moveLeft && !moveRight && !this.jumped && !this.crouched)
                 this.animation = this.idleAnimation;
-            if (!moveLeft && !moveRight && !this.jumped && this.isCrouched())
+            if (!moveLeft && !moveRight && !this.jumped && this.crouched)
                 this.animation = this.crouchAnimation;
-            if ((moveLeft || moveRight) && !this.jumped && !this.isCrouched())
+            if ((moveLeft || moveRight) && !this.jumped && !this.crouched)
                 this.animation = this.moveAnimation;
-            if ((moveLeft || moveRight) && !this.jumped && this.isCrouched())
+            if ((moveLeft || moveRight) && !this.jumped && this.crouched)
                 this.animation = this.crouchMoveAnimation;
-            if (this.jumped && this.isCrouched())
+            if (this.jumped && this.crouched)
                 this.animation = this.crouchAnimation;
-            if (this.jumped && !this.isCrouched())
+            if (this.jumped && !this.crouched)
                 this.animation = this.jumpAnimation;
 
             this.frame.x += Math.round(moveVector.x);
@@ -263,6 +274,21 @@ export class Player extends GameObject {
         if (this.winText)
             this.winText.visible = true;
     };
+
+    static deserialize(data: PlayerData, parent: GameObject | null): Player {
+        let player = new Player(parent, Rect.deserialize(data.frame));
+        player.clientId = data.clientId.id;
+        player.crouched = data.crouched;
+        player.dead = data.dead;
+        player.health = data.health;
+        player.jumpSpeed = data.jumpSpeed;
+        player.jumped = data.jumped;
+        player.maxPower = data.maxPower;
+        player.power = data.power;
+        player.speed = data.speed;
+        player.won = data.won;
+        return player;
+    }
 }
 
 export class Solid extends GameObject {
@@ -307,6 +333,14 @@ export class Solid extends GameObject {
             collision.collider.physics.velocity.y = 0;
         }
     };
+
+    static deserialize(data: SolidData, parent: GameObject | null): Solid {
+        return new Solid(
+            parent,
+            Rect.deserialize(data.frame),
+            data.damageVelocityThreshold,
+            data.damageVelocityMultiplier)
+    }
 }
 
 export class Room extends GameObject {
@@ -346,4 +380,13 @@ export class Room extends GameObject {
             this.frame.width,
             this.width), damageVelocityThreshold, damageVelocityMultiplier);
     };
+
+    static deserialize(data: RoomData, parent: GameObject | null): Room {
+        return new Room(
+            parent,
+            Rect.deserialize(data.frame),
+            data.width,
+            data.damageVelocityThreshold,
+            data.damageVelocityMultiplier)
+    }
 }

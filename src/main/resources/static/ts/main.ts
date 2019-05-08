@@ -49,7 +49,8 @@ loadResources(resources, function (resources) {
         ((window.location.protocol === "https:" ? "wss:" : "ws:") +
             "//" + window.location.host + window.location.pathname + "/ws")
     );
-    game.run();
+    // @ts-ignore
+    window.game = game;
     document.addEventListener("keydown", function (e) {
         game.keyDown(e);
     }, false);
@@ -61,4 +62,5 @@ loadResources(resources, function (resources) {
         setCanvasSize(uiCanvas);
         game.resize();
     });
+    game.run();
 });

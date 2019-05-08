@@ -1,6 +1,5 @@
 import {Renderer} from './Renderer';
-import {RenderObject} from './RenderObject';
-import {Texture} from "./Texture";
+import {RenderObject, Texture} from './RenderObject';
 import {Rect} from "./Core";
 
 export class Animation {

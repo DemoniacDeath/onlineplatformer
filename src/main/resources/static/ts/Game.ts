@@ -3,12 +3,43 @@ import {RenderObject} from 'RenderObject';
 import {Animation} from 'Animation';
 import {PhysicsState} from 'Physics';
 import {GameObject} from 'GameObject';
-import {EventBuffer, GameEvent, KeyboardInputEvent, KeyDownInputEvent, KeyPressedInputEvent} from './Events';
-import {rand, requestAnimFrame} from "./util";
-import {EventBufferTranslator, KeyboardInputEventTranslator} from "./EventTranslators";
+import {
+    EventBuffer,
+    GameEvent,
+    KeyboardInputEvent,
+    KeyDownInputEvent,
+    KeyPressedInputEvent,
+    NetEvent,
+    PlayerEvent,
+    PlayerEventType
+} from './Events';
+import {requestAnimFrame} from "./util";
+import {EventBufferTranslator, GameToNetEventTranslator, KeyboardInputToGameEventTranslator} from "./EventTranslators";
 import {Rect, Vector} from "./Core";
 import {UIBar, UIText} from "./UI";
 import {Camera, Consumable, Player, Room, Solid} from "./GameObjects";
+import {ConsumableData, GameData, GameObjectData, PlayerData, RoomData, SolidData} from "./Model/GameData";
+
+class NetworkHandler {
+    private webSocketConnection: WebSocket;
+
+    constructor(private socketUrl: string) {}
+
+    start(callbackFn: (gameData: GameData) => void) {
+        this.webSocketConnection = new WebSocket(this.socketUrl);
+        this.webSocketConnection.onopen = () => {
+
+        };
+        this.webSocketConnection.onmessage = (e) => {
+            let gameData = new GameData(JSON.parse(e.data));
+            callbackFn(gameData)
+        };
+    }
+
+    public sendMessage(message: NetEvent) {
+        this.webSocketConnection.send(message.getPayload());
+    }
+}
 
 export class Game {
     private gameCanvas: HTMLCanvasElement;
@@ -18,20 +49,9 @@ export class Game {
     private readonly renderer: Renderer;
     private readonly uiRenderer: Renderer;
     private readonly eventsBuffer: Map<string, KeyboardInputEvent>;
-    private readonly world: GameObject;
+    private world: GameObject;
     private readonly camera: Camera;
     private readonly ui: GameObject;
-    private readonly gridSquareSize = 40;
-    private readonly gravityForce = 33 * this.gridSquareSize;
-    private readonly itemChance = 0.16;
-    private readonly worldWidth = 40;
-    private readonly worldHeight = 30;
-    private readonly damageVelocityThreshold = 22.5 * this.gridSquareSize;
-    private readonly damageVelocityMultiplier = 0.4 / this.gridSquareSize;
-    private readonly speed = 7.8 * this.gridSquareSize;
-    private readonly jumpSpeed = 15 * this.gridSquareSize;
-    private readonly consumablePowerSpeedBoost = 0.06 * this.gridSquareSize;
-    private readonly consumablePowerJumpSpeedBoost = 0.06 * this.gridSquareSize;
     private deathText: UIText;
     private winText: UIText;
     private healthBarHolder: GameObject;
@@ -40,8 +60,10 @@ export class Game {
     private powerBar: UIBar;
     private readonly socketUrl: string;
     private player: Player;
-    private debugText: UIText;
     private readonly inputEventBufferTranslator: EventBufferTranslator<KeyboardInputEvent, GameEvent>;
+    private readonly gameEventBufferTranslator: EventBufferTranslator<GameEvent, NetEvent>;
+    private readonly networkHandler: NetworkHandler;
+    private clientId: string;
 
     constructor(gameCanvas: HTMLCanvasElement,
                 uiCanvas: HTMLCanvasElement,
@@ -53,90 +75,90 @@ export class Game {
         this.resources = resources;
         this.socketUrl = socketUrl;
 
-        PhysicsState.gravityForce = this.gravityForce;
-
         this.renderer = new Renderer(gameCanvas);
         this.uiRenderer = new Renderer(uiCanvas);
         this.eventsBuffer = new Map();
         this.lastTick = 0;
-        this.world = new GameObject(null, new Rect(0, 0, this.worldWidth * this.gridSquareSize, this.worldHeight * this.gridSquareSize));
-        this.camera = new Camera(this.world, new Rect(0, 0, this.renderer.size.width, this.renderer.size.height));
+        this.camera = new Camera(null, new Rect(0, 0, this.renderer.size.width, this.renderer.size.height));
         this.ui = new GameObject(null, new Rect(0, 0, this.renderer.size.width, this.renderer.size.height));
 
-        this.inputEventBufferTranslator = new EventBufferTranslator(new KeyboardInputEventTranslator());
+        this.inputEventBufferTranslator = new EventBufferTranslator(new KeyboardInputToGameEventTranslator());
+        this.gameEventBufferTranslator = new EventBufferTranslator(new GameToNetEventTranslator());
+        this.networkHandler = new NetworkHandler(this.socketUrl);
     }
 
-    createWorld() {
-        const player = new Player(this.world, new Rect(
-            0,
-            this.world.frame.height / 4,
-            this.gridSquareSize,
-            2 * this.gridSquareSize));
-        this.player = player;
-        player.speed = this.speed;
-        player.jumpSpeed = this.jumpSpeed;
-        player.idleAnimation = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("idle")!));
-        player.moveAnimationRight = Animation.withSpeedAndImage(1 / 15, this.resources.get("move")!, 40, 80, 6);
-        player.moveAnimationLeft = Animation.withSpeedAndImage(1 / 15, this.resources.get("move_l")!, 40, 80, 6);
-        player.moveAnimation = player.moveAnimationRight;
-        player.jumpAnimation = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("jump")!));
-        player.crouchAnimationRight = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("crouch")!));
-        player.crouchAnimationLeft = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("crouch_l")!));
-        player.crouchAnimation = player.crouchAnimationRight;
-        player.crouchMoveAnimationRight = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("crouch")!));
-        player.crouchMoveAnimationLeft = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("crouch_l")!));
-        player.crouchMoveAnimation = player.crouchMoveAnimationRight;
-        player.animation = player.idleAnimation;
-        player.addChild(this.camera);
+    run() {
+        this.inputEventBufferTranslator.noEventHandler = (result) => {
+            result.push(new PlayerEvent(Date.now(), PlayerEventType.Idle));
+            return result;
+        };
+        this.networkHandler.start((gameData: GameData) => {
+            this.createWorld(gameData);
+            this.lastTick = Date.now();
+            this.gameTimerTick = this.gameTimerTick.bind(this);
+            this.gameTimerTick();
+        });
+    }
 
-        const room = new Room(this.world, new Rect(0, 0, this.world.frame.width, this.world.frame.height), this.gridSquareSize, this.damageVelocityThreshold, this.damageVelocityMultiplier);
-        room.ceiling.renderObject = RenderObject.fromColor('#000');
-        room.wallLeft.renderObject = RenderObject.fromColor('#000');
-        room.wallRight.renderObject = RenderObject.fromColor('#000');
-        room.floor.renderObject = RenderObject.fromColor('#000');
-
-        const count = ~~(this.worldWidth * this.worldHeight * this.itemChance);
-        // var count = 0;
-        let powerCount = ~~(count / 2);
-        player.maxPower = powerCount;
-        const x = this.worldWidth - 2;
-        const y = this.worldHeight - 2;
-        let rndX, rndY;
-        const takenX: number[] = [];
-        const takenY: number[] = [];
-        for (let i = 0; i < count; i++) {
-            let taken = false;
-            do {
-                taken = false;
-                rndX = rand(0, x - 1);
-                rndY = rand(0, y - 1);
-                for (let j = 0; j <= i; j++) {
-                    if (rndX == takenX[j] && rndY == takenY[j]) {
-                        taken = true;
-                        break;
-                    }
-                }
-            } while (taken);
-
-            takenX[i] = rndX;
-            takenY[i] = rndY;
-
-            const rect = new Rect(
-                this.world.frame.width / 2 - this.gridSquareSize * 1.5 - rndX * this.gridSquareSize,
-                this.world.frame.height / 2 - this.gridSquareSize * 1.5 - rndY * this.gridSquareSize,
-                this.gridSquareSize,
-                this.gridSquareSize);
-
-            let gameObject;
-            if (powerCount > 0) {
-                gameObject = new Consumable(this.world, rect, this.consumablePowerSpeedBoost, this.consumablePowerJumpSpeedBoost);
-                gameObject.renderObject = RenderObject.fromColor('#0f0');
-                powerCount--;
-            } else {
-                gameObject = new Solid(this.world, rect, this.damageVelocityThreshold, this.damageVelocityMultiplier);
-                gameObject.renderObject = RenderObject.fromImage(this.resources.get("brick")!);
+    createWorld(gameData: GameData) {
+        this.clientId = gameData.clientId.id;
+        let processGameObjectChildrenData = (gameObjectData: GameObjectData, gameObject: GameObject) => {
+            for (let childData of gameObjectData.children) {
+                processGameObjectData(childData, gameObject);
             }
+        };
+        let processGameObjectData = (gameObjectData: GameObjectData, parent: GameObject | null): GameObject | null => {
+            if (gameObjectData.removed) return null;
+            let gameObject: GameObject;
+            if (gameObjectData instanceof PlayerData) {
+                let player = Player.deserialize(gameObjectData, parent);
+                gameObject = player;
+                if (gameObjectData.clientId.id == this.clientId) {
+                    this.player = player;
+                }
+            } else if (gameObjectData instanceof RoomData) {
+                let room = gameObject = Room.deserialize(gameObjectData, parent);
+                room.ceiling.renderObject
+                    = room.floor.renderObject
+                    = room.wallLeft.renderObject
+                    = room.wallRight.renderObject
+                    = RenderObject.fromColor('#000');
+            } else if (gameObjectData instanceof SolidData) {
+                gameObject = Solid.deserialize(gameObjectData, parent);
+                gameObject.renderObject = RenderObject.fromImage(this.resources.get("brick")!)
+            } else if (gameObjectData instanceof ConsumableData) {
+                gameObject = Consumable.deserialize(gameObjectData, parent);
+                gameObject.renderObject = RenderObject.fromColor("#0f0");
+            } else {
+                gameObject = GameObject.deserialize(gameObjectData, parent);
+            }
+            if (gameObjectData.physics) {
+                gameObject.physics = PhysicsState.deserialize(gameObjectData.physics, gameObject);
+                if (gameObject instanceof Player) {//dirty hack to make physics sane, i.e. un-hang the browser.
+                    gameObject.physics!.still = true;
+                }
+            }
+            processGameObjectChildrenData(gameObjectData, gameObject);
+            return gameObject;
+        };
+        this.world = processGameObjectData(gameData.world, null)!;
+        if (!this.player) {
+            throw Error("Could not initialize player");
         }
+        this.player.physics!.still = false;//dirty hack to make physics sane, i.e. un-hang the browser.
+        this.player.idleAnimation = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("idle")!));
+        this.player.moveAnimationRight = Animation.withSpeedAndImage(1 / 15, this.resources.get("move")!, 40, 80, 6);
+        this.player.moveAnimationLeft = Animation.withSpeedAndImage(1 / 15, this.resources.get("move_l")!, 40, 80, 6);
+        this.player.moveAnimation = this.player.moveAnimationRight;
+        this.player.jumpAnimation = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("jump")!));
+        this.player.crouchAnimationRight = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("crouch")!));
+        this.player.crouchAnimationLeft = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("crouch_l")!));
+        this.player.crouchAnimation = this.player.crouchAnimationRight;
+        this.player.crouchMoveAnimationRight = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("crouch")!));
+        this.player.crouchMoveAnimationLeft = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("crouch_l")!));
+        this.player.crouchMoveAnimation = this.player.crouchMoveAnimationRight;
+        this.player.animation = this.player.idleAnimation;
+        this.player.addChild(this.camera);
 
         this.deathText = new UIText(this.ui, new Rect(0, 0, 0, 60), "You died! Game over!", '#f00', "48px monospace");
         this.deathText.visible = false;
@@ -170,24 +192,10 @@ export class Game {
         this.powerBar.renderObject = RenderObject.fromColor('#0f0');
         this.powerBar.setValue(0);
 
-        this.debugText = new UIText(this.ui, new Rect(
-            0,
-            -this.uiRenderer.size.height / 2 + 10,
-            80, 12
-        ), "DEBUG", "#080", "12px monospace");
-        this.debugText.visible = false;
-
-        player.deathText = this.deathText;
-        player.winText = this.winText;
-        player.healthBar = this.healthBar;
-        player.powerBar = this.powerBar;
-    }
-
-    run() {
-        this.createWorld();
-        this.lastTick = Date.now();
-        this.gameTimerTick = this.gameTimerTick.bind(this);
-        this.gameTimerTick();
+        this.player.deathText = this.deathText;
+        this.player.winText = this.winText;
+        this.player.healthBar = this.healthBar;
+        this.player.powerBar = this.powerBar;
     }
 
     gameTimerTick() {
@@ -205,11 +213,11 @@ export class Game {
         this.uiRenderer.clear();
         this.ui.render(this.uiRenderer, this.ui.frame.getCenter(), Vector.zero(), this.camera.originalSize);
 
-        this.world.handleEvents(this.inputEventBufferTranslator.translate(
+        let gameEvents = this.inputEventBufferTranslator.translate(
             new EventBuffer(
-                Array.from(this.eventsBuffer.values()
-                )
-            )))
+                Array.from(this.eventsBuffer.values())
+            ));
+        this.world.handleEvents(gameEvents)
             .processPhysics(dt)
             .detectCollisions(dt)
         ;
@@ -221,13 +229,12 @@ export class Game {
 
     keyDown(e: KeyboardEvent) {
         this.eventsBuffer.set(e.code, new KeyPressedInputEvent(Date.now(), e.code));
-        this.world.handleEvents(
-            this.inputEventBufferTranslator.translate(
-                new EventBuffer([
-                    new KeyDownInputEvent(Date.now(), e.code)
-                ])
-            )
+        let gameEvents = this.inputEventBufferTranslator.translate(
+            new EventBuffer([
+                new KeyDownInputEvent(Date.now(), e.code)
+            ])
         );
+        this.world.handleEvents(gameEvents);
     }
 
     keyUp(e: KeyboardEvent) {

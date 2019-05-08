@@ -1,5 +1,6 @@
 import {GameObject} from './GameObject';
 import {Rect, Vector} from "./Core";
+import {PhysicsStateData} from "./Model/GameData";
 
 export class Collision {
     collider: GameObject;
@@ -12,8 +13,6 @@ export class Collision {
 }
 
 export class PhysicsState {
-    static gravityForce: number;
-
     gameObject: GameObject;
     gravityForce: number;
     gravity: boolean;
@@ -23,7 +22,6 @@ export class PhysicsState {
 
     constructor(gameObject: GameObject) {
         this.gameObject = gameObject;
-        this.gravityForce = PhysicsState.gravityForce;
         this.gravity = false;
         this.still = true;
         this.colliders = [];
@@ -111,4 +109,13 @@ export class PhysicsState {
         this.gameObject.handleExitCollision(collider.gameObject, dt);
         collider.gameObject.handleExitCollision(this.gameObject, dt);
     };
+
+    static deserialize(data: PhysicsStateData, gameObject: GameObject): PhysicsState {
+        let physics = new PhysicsState(gameObject);
+        physics.gravity = data.gravity;
+        physics.gravityForce = data.gravityForce;
+        physics.still = data.still;
+        physics.velocity = Vector.deserialize(data.velocity);
+        return physics;
+    }
 }

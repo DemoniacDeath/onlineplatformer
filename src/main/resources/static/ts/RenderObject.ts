@@ -1,6 +1,7 @@
 import {Renderer} from './Renderer';
-import {Texture} from "./Texture";
 import {Rect, Size, Vector} from "./Core";
+
+export type Texture = HTMLCanvasElement | HTMLImageElement;
 
 export class RenderObject {
     private readonly texture: Texture;

@@ -1,3 +1,5 @@
+import {RectData, SizeData, VectorData} from "./Model/GameData";
+
 export class Vector {
     x: number;
     y: number;
@@ -34,6 +36,10 @@ export class Vector {
     static zero(): Vector {
         return new Vector(0, 0);
     }
+
+    static deserialize(data: VectorData): Vector {
+        return new Vector(data.x, data.y);
+    }
 }
 
 export class Size {
@@ -43,6 +49,10 @@ export class Size {
     constructor(w: number, h: number) {
         this.width = w;
         this.height = h;
+    }
+
+    static deserialize(data: SizeData): Size {
+        return new Size(data.width, data.height);
     }
 }
 
@@ -116,4 +126,8 @@ export class Rect {
         }
         return false;
     };
+
+    static deserialize(data: RectData): Rect {
+        return new Rect(data.center.x, data.center.y, data.size.width, data.size.height);
+    }
 }

@@ -4,6 +4,7 @@ import {Collision, PhysicsState} from './Physics';
 import {Renderer} from './Renderer';
 import {EventBuffer, GameEvent} from "./Events";
 import {Rect, Size, Vector} from "./Core";
+import {GameObjectData} from "./Model/GameData";
 
 export class GameObject {
     frame: Rect;
@@ -81,7 +82,16 @@ export class GameObject {
            noScaleCaching: boolean = false
     ) {
         if (this.visible && this.renderObject)
-            this.renderObject.render(renderer, new Vector(this.frame.x + localBasis.x, this.frame.y + localBasis.y), this.frame.getSize(), cameraPosition, cameraSize, noScaleCaching);
+            this.renderObject.render(renderer,
+                new Vector(
+                    this.frame.x + localBasis.x,
+                    this.frame.y + localBasis.y
+                ),
+                this.frame.getSize(),
+                cameraPosition,
+                cameraSize,
+                noScaleCaching
+            );
         const newBasis = new Vector(
             localBasis.x + this.frame.x,
             localBasis.y + this.frame.y
@@ -89,7 +99,12 @@ export class GameObject {
         let i = 0;
         const len = this.children.length;
         while (i < len)
-            this.children[i++].render(renderer, newBasis, cameraPosition, cameraSize);
+            this.children[i++].render(
+                renderer,
+                newBasis,
+                cameraPosition,
+                cameraSize
+            );
         return this;
     };
 
@@ -144,5 +159,9 @@ export class GameObject {
     }
 
     handleExitCollision(collider: GameObject, dt: number) {
+    }
+
+    static deserialize(data: GameObjectData, parent: GameObject | null): GameObject {
+        return new GameObject(parent, Rect.deserialize(data.frame))
     }
 }

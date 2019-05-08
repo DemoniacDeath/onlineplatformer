@@ -1,3 +1,5 @@
+import {GameData} from "./Model/GameData";
+
 export abstract class BaseEvent {
     get time(): number {
         return this._time;
@@ -46,6 +48,7 @@ export class CameraEvent extends GameEvent {
 }
 
 export enum PlayerEventType {
+    Idle,
     MoveLeft,
     MoveRight,
     Jump,
@@ -58,6 +61,43 @@ export class PlayerEvent extends GameEvent {
         return this._type;
     }
     constructor(_time: number, private _type: PlayerEventType) {
+        super(_time);
+    }
+}
+
+export abstract class NetEvent extends BaseEvent {
+    getPayload(): string {
+        return JSON.stringify({
+            type: this.constructor.name,
+            data: this
+        });
+    }
+}
+
+export class ConnectionEstablishedEvent extends NetEvent {
+    constructor(_time: number) {
+        super(_time)
+    }
+}
+
+export enum PlayerMovementEventType {
+    MoveLeft = "MoveLeft",
+    MoveRight = "MoveRight",
+    Jump = "Jump",
+    Crouch = "Crouch",
+    Idle = "Idle",
+}
+
+export class PlayerMovementEvent extends NetEvent {
+    // noinspection JSUnusedLocalSymbols
+    constructor(_time: number, private type: PlayerMovementEventType) {
+        super(_time);
+    }
+}
+
+export class ReceiveWorldEvent extends NetEvent {
+    // noinspection JSUnusedLocalSymbols
+    constructor(_time: number, private worldData: GameData) {
         super(_time);
     }
 }
@@ -90,6 +130,12 @@ export class EventBuffer<T extends BaseEvent> implements Iterable<T>{
         this._events.push(event);
     }
 
+    pushBuffer<R extends T>(events: EventBuffer<R>) {
+        for (let event of events) {
+            this.push(event)
+        }
+    }
+
     pop(): T | undefined {
         return this._events.pop();
     }
@@ -100,5 +146,9 @@ export class EventBuffer<T extends BaseEvent> implements Iterable<T>{
 
     [Symbol.iterator](): Iterator<T> {
         return this._events[Symbol.iterator]();
+    }
+
+    forEach(func: (event: T) => void) {
+        this._events.forEach(func);
     }
 }
