@@ -6,12 +6,9 @@ import {
     GameEvent,
     KeyboardInputEvent,
     KeyDownInputEvent,
-    KeyPressedInputEvent,
-    NetEvent,
+    KeyPressedInputEvent, KeyUpInputEvent,
     PlayerEvent,
-    PlayerEventType,
-    PlayerMovementEvent,
-    PlayerMovementEventType
+    PlayerEventType
 } from './Events';
 
 export interface EventTranslator<F extends BaseEvent, T extends BaseEvent> {
@@ -20,51 +17,69 @@ export interface EventTranslator<F extends BaseEvent, T extends BaseEvent> {
 
 export class KeyboardInputToGameEventTranslator implements EventTranslator<KeyboardInputEvent, GameEvent> {
     translate(from: KeyboardInputEvent): GameEvent | null  {
-        if (from instanceof KeyDownInputEvent && from.keyCode == "KeyG")
-            return new PlayerEvent(from.time, PlayerEventType.CheatGravityToggle);
-        if (from instanceof KeyPressedInputEvent) {
-            if (from.keyCode == "KeyZ")
-                return new CameraEvent(from.time, CameraEventType.CameraZoom);
+        if (from instanceof KeyDownInputEvent) {
+            if (from.keyCode == "KeyG")
+                return new PlayerEvent(from.time, PlayerEventType.CheatGravityToggle);
             if (
                 from.keyCode == 'ArrowLeft' ||
                 from.keyCode == 'KeyA'
             )
-                return new PlayerEvent(from.time, PlayerEventType.MoveLeft);
+                return new PlayerEvent(from.time, PlayerEventType.MoveLeftStart);
             if (
                 from.keyCode == 'ArrowRight' ||
                 from.keyCode == 'KeyD'
             )
-                return new PlayerEvent(from.time, PlayerEventType.MoveRight);
+                return new PlayerEvent(from.time, PlayerEventType.MoveRightStart);
             if (
                 from.keyCode == 'ArrowUp' ||
                 from.keyCode == 'KeyW' ||
                 from.keyCode == 'Space'
             )
-                return new PlayerEvent(from.time, PlayerEventType.Jump);
+                return new PlayerEvent(from.time, PlayerEventType.JumpStart);
             if (
                 from.keyCode == 'ArrowDown' ||
                 from.keyCode == 'KeyS' ||
                 from.keyCode == 'ControlLeft'
             )
-                return new PlayerEvent(from.time, PlayerEventType.Crouch);
+                return new PlayerEvent(from.time, PlayerEventType.CrouchStart);
+        }
+        if (from instanceof KeyUpInputEvent) {
+            if (
+                from.keyCode == 'ArrowLeft' ||
+                from.keyCode == 'KeyA'
+            )
+                return new PlayerEvent(from.time, PlayerEventType.MoveLeftStop);
+            if (
+                from.keyCode == 'ArrowRight' ||
+                from.keyCode == 'KeyD'
+            )
+                return new PlayerEvent(from.time, PlayerEventType.MoveRightStop);
+            if (
+                from.keyCode == 'ArrowUp' ||
+                from.keyCode == 'KeyW' ||
+                from.keyCode == 'Space'
+            )
+                return new PlayerEvent(from.time, PlayerEventType.JumpStop);
+            if (
+                from.keyCode == 'ArrowDown' ||
+                from.keyCode == 'KeyS' ||
+                from.keyCode == 'ControlLeft'
+            )
+                return new PlayerEvent(from.time, PlayerEventType.CrouchStop);
+        }
+        if (from instanceof KeyPressedInputEvent) {
+            if (from.keyCode == "KeyZ")
+                return new CameraEvent(from.time, CameraEventType.CameraZoom);
         }
         return null;
     }
 }
 
-export class GameToNetEventTranslator implements EventTranslator<GameEvent, NetEvent> {
-    translate(from: GameEvent): NetEvent | null {
-        if (from instanceof PlayerEvent) {
-            if (from.type === PlayerEventType.Idle)
-                return new PlayerMovementEvent(from.time, PlayerMovementEventType.Idle);
-            if (from.type === PlayerEventType.MoveLeft)
-                return new PlayerMovementEvent(from.time, PlayerMovementEventType.MoveLeft);
-            if (from.type === PlayerEventType.MoveRight)
-                return new PlayerMovementEvent(from.time, PlayerMovementEventType.MoveRight);
-            if (from.type === PlayerEventType.Jump)
-                return new PlayerMovementEvent(from.time, PlayerMovementEventType.Jump);
-            if (from.type === PlayerEventType.Crouch)
-                return new PlayerMovementEvent(from.time, PlayerMovementEventType.Crouch);
+export class FilteringTranslator<F extends GameEvent, T extends F> implements EventTranslator<F, T> {
+    constructor(private type: new (...args: any[]) => T) {}
+    translate(from: F): T | null {
+        if (from instanceof this.type) {
+            return from as T;
         }
         return null;
     }

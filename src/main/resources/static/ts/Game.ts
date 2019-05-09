@@ -8,13 +8,12 @@ import {
     GameEvent,
     KeyboardInputEvent,
     KeyDownInputEvent,
-    KeyPressedInputEvent,
-    NetEvent,
+    KeyPressedInputEvent, KeyUpInputEvent,
     PlayerEvent,
     PlayerEventType
 } from './Events';
 import {requestAnimFrame} from "./util";
-import {EventBufferTranslator, GameToNetEventTranslator, KeyboardInputToGameEventTranslator} from "./EventTranslators";
+import {EventBufferTranslator, KeyboardInputToGameEventTranslator} from "./EventTranslators";
 import {Rect, Vector} from "./Core";
 import {UIBar, UIText} from "./UI";
 import {Camera, Consumable, Player, Room, Solid} from "./GameObjects";
@@ -36,8 +35,15 @@ class NetworkHandler {
         };
     }
 
-    public sendMessage(message: NetEvent) {
+    public sendMessage(message: NetworkMessage) {
         this.webSocketConnection.send(message.getPayload());
+    }
+}
+
+class NetworkMessage {
+    constructor(public content: EventBuffer<GameEvent>) {}
+    getPayload(): string {
+        return JSON.stringify(this.content);
     }
 }
 
@@ -61,9 +67,9 @@ export class Game {
     private readonly socketUrl: string;
     private player: Player;
     private readonly inputEventBufferTranslator: EventBufferTranslator<KeyboardInputEvent, GameEvent>;
-    private readonly gameEventBufferTranslator: EventBufferTranslator<GameEvent, NetEvent>;
     private readonly networkHandler: NetworkHandler;
     private clientId: string;
+    private debugText: UIText;
 
     constructor(gameCanvas: HTMLCanvasElement,
                 uiCanvas: HTMLCanvasElement,
@@ -83,7 +89,6 @@ export class Game {
         this.ui = new GameObject(null, new Rect(0, 0, this.renderer.size.width, this.renderer.size.height));
 
         this.inputEventBufferTranslator = new EventBufferTranslator(new KeyboardInputToGameEventTranslator());
-        this.gameEventBufferTranslator = new EventBufferTranslator(new GameToNetEventTranslator());
         this.networkHandler = new NetworkHandler(this.socketUrl);
     }
 
@@ -192,6 +197,8 @@ export class Game {
         this.player.winText = this.winText;
         this.player.healthBar = this.healthBar;
         this.player.powerBar = this.powerBar;
+
+        this.debugText = new UIText(this.ui, new Rect(0, 0, 0, 60), " ", '#088', "28px monospace")
     }
 
     gameTimerTick() {
@@ -218,23 +225,40 @@ export class Game {
             .detectCollisions(dt)
         ;
 
+        this.debugText.text = ""
+            + (this.player.crouching ? "C":"")
+            + (this.player.jumping ? "J":"")
+            + (this.player.movingLeft ? "L":"")
+            + (this.player.movingRight ? "R":"");
+
+
         requestAnimFrame(() => {
             this.gameTimerTick()
         });
     }
 
     keyDown(e: KeyboardEvent) {
-        this.eventsBuffer.set(e.code, new KeyPressedInputEvent(Date.now(), e.code));
+        if (this.eventsBuffer.has("KeyPressedInputEvent: " + e.code)) return;
+        this.eventsBuffer.set("KeyPressedInputEvent: " + e.code, new KeyPressedInputEvent(Date.now(), e.code));
+        this.eventsBuffer.set("KeyDownInputEvent: " + e.code, new KeyDownInputEvent(Date.now(), e.code));
         let gameEvents = this.inputEventBufferTranslator.translate(
-            new EventBuffer([
-                new KeyDownInputEvent(Date.now(), e.code)
-            ])
+            new EventBuffer(Array.from(this.eventsBuffer.values()))
         );
         this.world.handleEvents(gameEvents);
+        this.eventsBuffer.delete("KeyDownInputEvent: " + e.code);
+        this.networkHandler.sendMessage(new NetworkMessage(gameEvents));
     }
 
     keyUp(e: KeyboardEvent) {
-        this.eventsBuffer.delete(e.code);
+        if (!this.eventsBuffer.has("KeyPressedInputEvent: " + e.code)) return;
+        this.eventsBuffer.delete("KeyPressedInputEvent: " + e.code);
+        this.eventsBuffer.set("KeyUpInputEvent: " + e.code, new KeyUpInputEvent(Date.now(), e.code));
+        let gameEvents = this.inputEventBufferTranslator.translate(
+            new EventBuffer(Array.from(this.eventsBuffer.values()))
+        );
+        this.world.handleEvents(gameEvents);
+        this.eventsBuffer.delete("KeyUpInputEvent: " + e.code);
+        this.networkHandler.sendMessage(new NetworkMessage(gameEvents));
     }
 
     resize() {

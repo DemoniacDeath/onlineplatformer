@@ -93,7 +93,7 @@ export class UIText extends GameObject {
         const texture = Renderer.createTexture(1, this.frame.height);
         const ctx = texture.getContext("2d")!;
         ctx.font = this._font;
-        texture.width = ctx.measureText(this._text).width;
+        texture.width = ctx.measureText(this._text).width || 1;
         this.frame.width = texture.width;
         ctx.font = this._font;
         ctx.fillStyle = this._color;

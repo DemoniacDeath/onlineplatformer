@@ -5,6 +5,7 @@ import {Collision, PhysicsState} from "./Physics";
 import {Animation} from "./Animation";
 import {UIBar, UIText} from "./UI";
 import {ConsumableData, PlayerData, RoomData, SolidData} from "./Model/GameData";
+import {EventBufferTranslator, FilteringTranslator} from "./EventTranslators";
 
 export class Camera extends GameObject {
     originalSize: Size;
@@ -81,8 +82,12 @@ export class Player extends GameObject {
     deathText: UIText | null;
     healthBar: UIBar | null;
     powerBar: UIBar | null;
+    private _jumping: boolean = false;
+    private _movingLeft: boolean = false;
+    private _movingRight: boolean = false;
+    private _crouching: boolean = false;
     private _crouched: boolean;
-    private _lastTick: number = 0;
+    private _playerEventBufferFilteringTranslator: EventBufferTranslator<GameEvent, PlayerEvent>;
 
     constructor(parent: GameObject | null, frame: Rect) {
         super(parent, frame);
@@ -117,6 +122,7 @@ export class Player extends GameObject {
 
         this._crouched = false;
 
+        this._playerEventBufferFilteringTranslator = new EventBufferTranslator(new FilteringTranslator(PlayerEvent));
     };
 
     get crouched(): boolean {
@@ -135,93 +141,122 @@ export class Player extends GameObject {
         }
     };
 
+    get crouching(): boolean {return this._crouching}
+    set crouching(crouching: boolean) {
+        if (this._crouching == crouching) return;
+        this._crouching = crouching;
+        if (this.physics && !this.physics.gravity) {
+            if (crouching)
+                this.physics.velocity.y += this.speed;
+            else
+                this.physics.velocity.y -= this.speed;
+        }
+
+        this.crouched = crouching;
+        this.detectAnimation();
+    }
+
+    get jumping(): boolean {return this._jumping}
+    set jumping(jumping: boolean) {
+        if (this._jumping == jumping) return;
+        this._jumping = jumping;
+        if (this.physics) {
+            if (!this.physics.gravity) {
+                this.physics.velocity.y += jumping ? -this.speed : this.speed;
+            } else {
+                if (jumping && !this.jumped) {
+                    this.physics.velocity.y -= this.jumpSpeed;
+                    this.jumped = true;
+                }
+            }
+        }
+        this.detectAnimation();
+    }
+
+    get movingLeft(): boolean {return this._movingLeft}
+    set movingLeft(movingLeft: boolean) {
+        if (this._movingLeft == movingLeft) return;
+        this._movingLeft = movingLeft;
+        if (this.physics) {
+            this.physics.velocity.x += movingLeft ? -this.speed : this.speed;
+        }
+        if (movingLeft && !this.movingRight) {
+            this.moveAnimation = this.moveAnimationLeft;
+            this.crouchAnimation = this.crouchAnimationLeft;
+            this.crouchMoveAnimation = this.crouchMoveAnimationLeft;
+        }
+        this.detectAnimation();
+    }
+
+    get movingRight(): boolean {return this._movingRight}
+    set movingRight(movingRight: boolean) {
+        if (this._movingRight == movingRight) return;
+        this._movingRight = movingRight;
+        if (this.physics) {
+            this.physics.velocity.x += movingRight ? this.speed : -this.speed;
+        }
+        if (movingRight && !this.movingLeft) {
+            this.moveAnimation = this.moveAnimationRight;
+            this.crouchAnimation = this.crouchAnimationRight;
+            this.crouchMoveAnimation = this.crouchMoveAnimationRight;
+        }
+        this.detectAnimation();
+    }
+
+    detectAnimation() {
+        if (!this.movingLeft && !this.movingRight && !this.jumped && !this.crouched)
+            this.animation = this.idleAnimation;
+        if (!this.movingLeft && !this.movingRight && !this.jumped && this.crouched)
+            this.animation = this.crouchAnimation;
+        if ((this.movingLeft || this.movingRight) && !this.jumped && !this.crouched)
+            this.animation = this.moveAnimation;
+        if ((this.movingLeft || this.movingRight) && !this.jumped && this.crouched)
+            this.animation = this.crouchMoveAnimation;
+        if (this.jumped && this.crouched)
+            this.animation = this.crouchAnimation;
+        if (this.jumped && !this.crouched)
+            this.animation = this.jumpAnimation;
+    }
+
     handleEvents(events: EventBuffer<GameEvent>) {
-        const ticks = Date.now();
-        let dt = this._lastTick - ticks / 1000;
-        dt = Math.min(dt, 0.02);
-        this._lastTick = ticks;
-        if (this.physics && events.contains(PlayerEvent, (e: PlayerEvent) => {
-            return e.type === PlayerEventType.CheatGravityToggle;
-        })) {
+        let gameEvents = this._playerEventBufferFilteringTranslator.translate(events);
+        if (this.physics && PlayerEvent.bufferContainsType(gameEvents, PlayerEventType.CheatGravityToggle)) {
             this.physics.gravity = !this.physics.gravity;
             if (!this.physics.gravity) {
                 this.jumped = true;
                 this.physics.velocity = Vector.zero();
             }
         }
-        if (!this.dead && this.physics && events.contains(PlayerEvent, (e: PlayerEvent) => {
-            return e.type === PlayerEventType.Idle
-                || e.type === PlayerEventType.MoveLeft
-                || e.type === PlayerEventType.MoveRight
-                || e.type === PlayerEventType.Jump
-                || e.type === PlayerEventType.Crouch;
-
-        })) {
-            let sitDown = false;
-            let moveLeft = false;
-            let moveRight = false;
-            const moveVector = Vector.zero();
-            const speed = this.speed * dt;
-            if (events.contains(PlayerEvent, (e: PlayerEvent) => {
-                return e.type === PlayerEventType.MoveLeft
-            })) {
-                moveVector.x -= speed;
-                moveLeft = true;
+        if (!this.dead && this.physics && !gameEvents.isEmpty()) {
+            let playerEvents = gameEvents as EventBuffer<PlayerEvent>;
+            this.physics.velocity.x = 0;
+            if (PlayerEvent.bufferContainsType(playerEvents, PlayerEventType.MoveLeftStart)) {
+                this.movingLeft = true;
             }
-            if (events.contains(PlayerEvent, (e: PlayerEvent) => {
-                return e.type === PlayerEventType.MoveRight
-            })) {
-                moveVector.x += speed;
-                moveRight = true;
+            if (PlayerEvent.bufferContainsType(playerEvents, PlayerEventType.MoveLeftStop)) {
+                this.movingLeft = false;
             }
-            if (events.contains(PlayerEvent, (e: PlayerEvent) => {
-                return e.type === PlayerEventType.Jump
-            })) {
-                if (!this.physics.gravity) {
-                    moveVector.y -= speed;
-                } else {
-                    if (!this.jumped) {
-                        this.physics.velocity.y -= this.jumpSpeed;
-                        this.jumped = true;
-                    }
-                }
+            if (PlayerEvent.bufferContainsType(playerEvents, PlayerEventType.MoveRightStart)) {
+                this.movingRight = true;
             }
-            if (events.contains(PlayerEvent, (e: PlayerEvent) => {
-                return e.type === PlayerEventType.Crouch
-            })) {
-                if (!this.physics.gravity)
-                    moveVector.y += speed;
-                else
-                    sitDown = true;
+            if (PlayerEvent.bufferContainsType(playerEvents, PlayerEventType.MoveRightStop)) {
+                this.movingRight = false;
             }
-            this.crouched = sitDown;
-
-            if (moveLeft && !moveRight) {
-                this.moveAnimation = this.moveAnimationLeft;
-                this.crouchAnimation = this.crouchAnimationLeft;
-                this.crouchMoveAnimation = this.crouchMoveAnimationLeft;
+            if (PlayerEvent.bufferContainsType(playerEvents, PlayerEventType.JumpStart)) {
+                this.jumping = true;
             }
-            if (moveRight && !moveLeft) {
-                this.moveAnimation = this.moveAnimationRight;
-                this.crouchAnimation = this.crouchAnimationRight;
-                this.crouchMoveAnimation = this.crouchMoveAnimationRight;
+            if (PlayerEvent.bufferContainsType(playerEvents, PlayerEventType.JumpStop)) {
+                this.jumping = false;
             }
-
-            if (!moveLeft && !moveRight && !this.jumped && !this.crouched)
-                this.animation = this.idleAnimation;
-            if (!moveLeft && !moveRight && !this.jumped && this.crouched)
-                this.animation = this.crouchAnimation;
-            if ((moveLeft || moveRight) && !this.jumped && !this.crouched)
-                this.animation = this.moveAnimation;
-            if ((moveLeft || moveRight) && !this.jumped && this.crouched)
-                this.animation = this.crouchMoveAnimation;
-            if (this.jumped && this.crouched)
-                this.animation = this.crouchAnimation;
-            if (this.jumped && !this.crouched)
-                this.animation = this.jumpAnimation;
-
-            this.frame.x += Math.round(moveVector.x);
-            this.frame.y += Math.round(moveVector.y);
+            if (PlayerEvent.bufferContainsType(playerEvents, PlayerEventType.CrouchStart)) {
+                this.crouching = true;
+            }
+            if (PlayerEvent.bufferContainsType(playerEvents, PlayerEventType.CrouchStop)) {
+                this.crouching = false;
+            }
+            if (PlayerEvent.bufferContainsType(playerEvents, PlayerEventType.Idle)) {
+                this.detectAnimation();
+            }
         }
         super.handleEvents(events);
         return this;
