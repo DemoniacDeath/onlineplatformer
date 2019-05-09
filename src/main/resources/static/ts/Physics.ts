@@ -45,25 +45,7 @@ export class PhysicsState {
         if (this.still && c.still)
             return;//two still objects cannot collide (because we presume that they both do not move)
 
-        let alreadyCollided = false;
-
-        let i, len;
-        i = 0;
-        len = this.colliders.length;
-        while (i < len) {
-            if (this.colliders[i] === c.gameObject)
-                alreadyCollided = true;
-            i++;
-        }
-        if (!alreadyCollided) {
-            i = 0;
-            len = c.colliders.length;
-            while (i < len) {
-                if (c.colliders[i] === this.gameObject)
-                    alreadyCollided = true;
-            }
-        }
-
+        const alreadyCollided = !!~this.colliders.indexOf(c.gameObject) || !!~c.colliders.indexOf(this.gameObject);
         const center1 = this.gameObject.getGlobalPosition();
         const center2 = c.gameObject.getGlobalPosition();
         const overlapArea = Rect.overlapArea(

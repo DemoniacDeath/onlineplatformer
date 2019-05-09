@@ -100,7 +100,7 @@ export class Rect {
         secondY: number,
         secondW: number,
         secondH: number
-    ) {
+    ): Vector | null {
         const x1 = firstX - firstW / 2;
         const x2 = secondX - secondW / 2;
         const X1 = x1 + firstW;
@@ -124,7 +124,7 @@ export class Rect {
                 (Math.abs(diffY1) < Math.abs(diffY2) ? diffY1 : diffY2)
             );
         }
-        return false;
+        return null;
     };
 
     static deserialize(data: RectData): Rect {
