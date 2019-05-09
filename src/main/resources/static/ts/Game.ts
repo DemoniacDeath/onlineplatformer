@@ -134,9 +134,6 @@ export class Game {
             }
             if (gameObjectData.physics) {
                 gameObject.physics = PhysicsState.deserialize(gameObjectData.physics, gameObject);
-                if (gameObject instanceof Player) {//dirty hack to make physics sane, i.e. un-hang the browser.
-                    gameObject.physics!.still = true;
-                }
             }
             processGameObjectChildrenData(gameObjectData, gameObject);
             return gameObject;
@@ -145,7 +142,6 @@ export class Game {
         if (!this.player) {
             throw Error("Could not initialize player");
         }
-        this.player.physics!.still = false;//dirty hack to make physics sane, i.e. un-hang the browser.
         this.player.idleAnimation = Animation.withSingleRenderObject(RenderObject.fromImage(this.resources.get("idle")!));
         this.player.moveAnimationRight = Animation.withSpeedAndImage(1 / 15, this.resources.get("move")!, 40, 80, 6);
         this.player.moveAnimationLeft = Animation.withSpeedAndImage(1 / 15, this.resources.get("move_l")!, 40, 80, 6);
